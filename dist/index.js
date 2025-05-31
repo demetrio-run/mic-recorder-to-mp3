@@ -15808,6 +15808,8 @@ var Encoder = function () {
   return Encoder;
 }();
 
+var inlineProcessor = "\nclass RecorderProcessor extends AudioWorkletProcessor {\n    constructor() {\n      super();\n      this.bufferSize = 1152;\n      this.buffer = new Float32Array(this.bufferSize);\n      this.bytesWritten = 0;\n      this.bytesWritten = 0;\n      this.port.onmessage = (e) => {\n        const data = e.data;\n        switch (data.action) {\n          case \"stop\":\n            this._flush();\n            break;\n        }\n      };\n    }\n    process(inputs) {\n      const samples = inputs[0][0];\n      if (!samples)\n        return true;\n      for (let i = 0; i < samples.length; i++) {\n        this.buffer[this.bytesWritten++] = samples[i];\n        if (this.bytesWritten >= this.bufferSize) {\n          this._flush();\n        }\n      }\n      return true;\n    }\n    _flush() {\n      const buffer = this.bytesWritten < this.bufferSize ? this.buffer.slice(0, this.bytesWritten) : this.buffer;\n      if (buffer.length) {\n        this.port.postMessage({\n          action: \"encode\",\n          buffer\n        });\n      }\n      this.bytesWritten = 0;\n    }\n  };\n  registerProcessor(\"recorder.processor\", RecorderProcessor);\n";
+
 var MicRecorder = function () {
   function MicRecorder(config) {
     classCallCheck(this, MicRecorder);
@@ -15830,64 +15832,91 @@ var MicRecorder = function () {
     this.microphone = null;
     this.processor = null;
     this.startTime = 0;
+    this.workletUrl = URL.createObjectURL(new Blob([inlineProcessor], {
+      type: "application/javascript;charset=utf8"
+    }));
 
     Object.assign(this.config, config);
   }
 
-  /**
-   * Starts to listen for the microphone sound
-   * @param {MediaStream} stream
-   */
-
-
   createClass(MicRecorder, [{
-    key: 'addMicrophoneListener',
-    value: function addMicrophoneListener(stream) {
+    key: "createRecorderProcessor",
+    value: function createRecorderProcessor() {
       var _this = this;
+
+      return new Promise(function (resolve, reject) {
+        try {
+          resolve(new AudioWorkletNode(_this.context, "recorder.processor"));
+        } catch (error) {
+          _this.context.audioWorklet.addModule(_this.workletUrl).then(function () {
+            return resolve(new AudioWorkletNode(_this.context, "recorder.processor"));
+          }).catch(function (e) {
+            return reject(e);
+          });
+        }
+      });
+    }
+    /**
+     * Starts to listen for the microphone sound
+     * @param {MediaStream} stream
+     */
+
+  }, {
+    key: "addMicrophoneListener",
+    value: function addMicrophoneListener(stream) {
+      var _this2 = this;
 
       this.activeStream = stream;
 
       // This prevents the weird noise once you start listening to the microphone
       this.timerToStart = setTimeout(function () {
-        delete _this.timerToStart;
+        delete _this2.timerToStart;
       }, this.config.startRecordingAt);
 
       // Set up Web Audio API to process data from the media stream (microphone).
       this.microphone = this.context.createMediaStreamSource(stream);
 
-      // Settings a bufferSize of 0 instructs the browser to choose the best bufferSize
-      this.processor = this.context.createScriptProcessor(0, 1, 1);
+      return new Promise(function (resolve, reject) {
+        _this2.createRecorderProcessor().then(function (processor) {
+          _this2.processor = processor;
+          _this2.processor.port.onmessage = function (event) {
+            if (event.data.action === "encode") {
+              if (_this2.timerToStart) {
+                return;
+              }
 
-      // Add all buffers from LAME into an array.
-      this.processor.onaudioprocess = function (event) {
-        if (_this.timerToStart) {
-          return;
-        }
+              // Send microphone data to LAME for MP3 encoding while recording.
+              _this2.lameEncoder.encode(event.data.buffer);
+            }
+          };
 
-        // Send microphone data to LAME for MP3 encoding while recording.
-        _this.lameEncoder.encode(event.inputBuffer.getChannelData(0));
-      };
+          // Begin retrieving microphone data.
+          _this2.microphone.connect(_this2.processor);
+          _this2.processor.connect(_this2.context.destination);
 
-      // Begin retrieving microphone data.
-      this.microphone.connect(this.processor);
-      this.processor.connect(this.context.destination);
+          resolve();
+        }).catch(function (e) {
+          return reject(e);
+        });
+      });
     }
-  }, {
-    key: 'stop',
-
 
     /**
      * Disconnect microphone, processor and remove activeStream
      */
+
+  }, {
+    key: "stop",
     value: function stop() {
       if (this.processor && this.microphone) {
         // Clean up the Web Audio API resources.
+        this.processor.port.postMessage({ action: "stop" });
         this.microphone.disconnect();
         this.processor.disconnect();
 
         // If all references using this.context are destroyed, context is closed
         // automatically. DOMException is fired when trying to close again
-        if (this.context && this.context.state !== 'closed') {
+        if (this.context && this.context.state !== "closed") {
           this.context.close();
         }
 
@@ -15901,16 +15930,16 @@ var MicRecorder = function () {
 
       return this;
     }
-  }, {
-    key: 'start',
-
 
     /**
      * Requests access to the microphone and start recording
      * @return Promise
      */
+
+  }, {
+    key: "start",
     value: function start() {
-      var _this2 = this;
+      var _this3 = this;
 
       var AudioContext = window.AudioContext || window.webkitAudioContext;
       this.context = new AudioContext();
@@ -15921,32 +15950,33 @@ var MicRecorder = function () {
 
       return new Promise(function (resolve, reject) {
         navigator.mediaDevices.getUserMedia({ audio: audio }).then(function (stream) {
-          _this2.addMicrophoneListener(stream);
-          resolve(stream);
+          return _this3.addMicrophoneListener(stream);
+        }).then(function () {
+          return resolve();
         }).catch(function (err) {
           reject(err);
         });
       });
     }
-  }, {
-    key: 'getMp3',
-
 
     /**
      * Return Mp3 Buffer and Blob with type mp3
      * @return {Promise}
      */
+
+  }, {
+    key: "getMp3",
     value: function getMp3() {
-      var _this3 = this;
+      var _this4 = this;
 
       var finalBuffer = this.lameEncoder.finish();
 
       return new Promise(function (resolve, reject) {
         if (finalBuffer.length === 0) {
-          reject(new Error('No buffer to send'));
+          reject(new Error("No buffer to send"));
         } else {
-          resolve([finalBuffer, new Blob(finalBuffer, { type: 'audio/mp3' })]);
-          _this3.lameEncoder.clearBuffer();
+          resolve([finalBuffer, new Blob(finalBuffer, { type: "audio/mp3" })]);
+          _this4.lameEncoder.clearBuffer();
         }
       });
     }

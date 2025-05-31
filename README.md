@@ -7,20 +7,14 @@ Record your microphone audio input and get an ```audio/mp3``` file in the end.
 ## Yarn
 
 ```bash
-yarn add mic-recorder-to-mp3
+yarn add @demetrio-run/mp3-recorder
 ```
 
 ## npm
 
 ```bash
-npm install mic-recorder-to-mp3
+npm install @demetrio-run/mp3-recorder
 ```
-
-## CDN Usage
-
-You can add via CDN using the address: [https://unpkg.com/mic-recorder-to-mp3@2.2.1](https://unpkg.com/mic-recorder-to-mp3@2.2.1). You can find the minified version in the same address, ex: [https://unpkg.com/mic-recorder-to-mp3@2.2.1/dist/index.min.js](https://unpkg.com/mic-recorder-to-mp3@2.2.1/dist/index.min.js)
-
-**About the version in URL**: Change the URL version to any of our releases, or use https://unpkg.com/mic-recorder-to-mp3 to automatically use the latest version.
 
 # Development
 
@@ -39,7 +33,7 @@ npm run build
 # How to use
 
 ```js
-const MicRecorder = require('mic-recorder-to-mp3');
+const MicRecorder = require('@demetrio-run/mp3-recorder');
 
 // New instance
 const recorder = new MicRecorder({

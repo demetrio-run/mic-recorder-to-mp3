@@ -15808,7 +15808,7 @@ var Encoder = function () {
   return Encoder;
 }();
 
-var inlineProcessor = "\nclass RecorderProcessor extends AudioWorkletProcessor {\n    constructor() {\n      super();\n      this.bufferSize = 1152;\n      this.buffer = new Float32Array(this.bufferSize);\n      this.bytesWritten = 0;\n      this.bytesWritten = 0;\n      this.port.onmessage = (e) => {\n        const data = e.data;\n        switch (data.action) {\n          case \"stop\":\n            this._flush();\n            break;\n        }\n      };\n    }\n    process(inputs) {\n      const samples = inputs[0][0];\n      if (!samples)\n        return true;\n      for (let i = 0; i < samples.length; i++) {\n        this.buffer[this.bytesWritten++] = samples[i];\n        if (this.bytesWritten >= this.bufferSize) {\n          this._flush();\n        }\n      }\n      return true;\n    }\n    _flush() {\n      const buffer = this.bytesWritten < this.bufferSize ? this.buffer.slice(0, this.bytesWritten) : this.buffer;\n      if (buffer.length) {\n        this.port.postMessage({\n          action: \"encode\",\n          buffer\n        });\n      }\n      this.bytesWritten = 0;\n    }\n  };\n  registerProcessor(\"recorder.processor\", RecorderProcessor);\n";
+var inlineProcessor = '\n  class RecorderProcessor extends AudioWorkletProcessor {\n    constructor() {\n      super();\n      this.bufferSize = 1152;\n      this.buffer = new Float32Array(this.bufferSize);\n      this.bytesWritten = 0;\n      this.bytesWritten = 0;\n      this.port.onmessage = (e) => {\n        const data = e.data;\n        switch (data.action) {\n          case \'stop\':\n            this._flush();\n            break;\n        }\n      };\n    }\n\n    process(inputs) {\n      const samples = inputs[0][0];\n      if (!samples) {\n        return true;\n      }\n      \n      for (let i = 0; i < samples.length; i++) {\n        this.buffer[this.bytesWritten++] = samples[i];\n        if (this.bytesWritten >= this.bufferSize) {\n          this._flush();\n        }\n      }\n\n      return true;\n    }\n\n    _flush() {\n      const buffer = this.bytesWritten < this.bufferSize\n        ? this.buffer.slice(0, this.bytesWritten)\n        : this.buffer;\n      \n      if (buffer.length) {\n        this.port.postMessage({\n          action: \'encode\',\n          buffer\n        });\n      }\n\n      this.bytesWritten = 0;\n    }\n  };\n\n  registerProcessor(\'recorder.processor\', RecorderProcessor);\n';
 
 var MicRecorder = function () {
   function MicRecorder(config) {
@@ -15818,51 +15818,55 @@ var MicRecorder = function () {
       // 128 or 160 kbit/s – mid-range bitrate quality
       bitRate: 128,
 
+      deviceId: null,
+      // Encode to mp3 after finish recording
+      // Encoding during recording may result in distorted audio
+      // This could be crucial on mobile devices
+      encodeAfterRecord: true,
       // There is a known issue with some macOS machines, where the recording
       // will sometimes have a loud 'pop' or 'pop-click' sound. This flag
       // prevents getting audio from the microphone a few milliseconds after
-      // the begining of the recording. It also helps to remove the mouse
-      // "click" sound from the output mp3 file.
-      startRecordingAt: 300,
-      deviceId: null
+      // the beginning of the recording. It also helps to remove the mouse
+      // 'click' sound from the output mp3 file.
+      startRecordingAt: 300
     };
+
+    Object.assign(this.config, config);
 
     this.activeStream = null;
     this.context = null;
     this.microphone = null;
     this.processor = null;
-    this.startTime = 0;
-    this.workletUrl = URL.createObjectURL(new Blob([inlineProcessor], {
-      type: "application/javascript;charset=utf8"
-    }));
+    this.rawChunksBuffer = this.config.encodeAfterRecord ? [] : null;
 
-    Object.assign(this.config, config);
+    this.workletUrl = URL.createObjectURL(new Blob([inlineProcessor], {
+      type: 'application/javascript;charset=utf8'
+    }));
   }
 
   createClass(MicRecorder, [{
-    key: "createRecorderProcessor",
+    key: 'createRecorderProcessor',
     value: function createRecorderProcessor() {
       var _this = this;
 
       return new Promise(function (resolve, reject) {
         try {
-          resolve(new AudioWorkletNode(_this.context, "recorder.processor"));
+          resolve(new AudioWorkletNode(_this.context, 'recorder.processor'));
         } catch (error) {
           _this.context.audioWorklet.addModule(_this.workletUrl).then(function () {
-            return resolve(new AudioWorkletNode(_this.context, "recorder.processor"));
-          }).catch(function (e) {
-            return reject(e);
-          });
+            return resolve(new AudioWorkletNode(_this.context, 'recorder.processor'));
+          }).catch(reject);
         }
       });
     }
+
     /**
      * Starts to listen for the microphone sound
      * @param {MediaStream} stream
      */
 
   }, {
-    key: "addMicrophoneListener",
+    key: 'addMicrophoneListener',
     value: function addMicrophoneListener(stream) {
       var _this2 = this;
 
@@ -15880,19 +15884,24 @@ var MicRecorder = function () {
         _this2.createRecorderProcessor().then(function (processor) {
           _this2.processor = processor;
           _this2.processor.port.onmessage = function (event) {
-            if (event.data.action === "encode") {
+            if (event.data.action === 'encode') {
               if (_this2.timerToStart) {
                 return;
               }
 
-              // Send microphone data to LAME for MP3 encoding while recording.
-              _this2.lameEncoder.encode(event.data.buffer);
+              var rawChunk = event.data.buffer;
+              if (_this2.config.encodeAfterRecord) {
+                // Save copy of raw chunk for future encoding
+                _this2.rawChunksBuffer.push(Object.assign([], rawChunk));
+              } else {
+                // Send microphone data to LAME for MP3 encoding while recording.
+                _this2.lameEncoder.encode(rawChunk);
+              }
             }
           };
 
           // Begin retrieving microphone data.
-          _this2.microphone.connect(_this2.processor);
-          _this2.processor.connect(_this2.context.destination);
+          _this2.connectMicrophone();
 
           resolve();
         }).catch(function (e) {
@@ -15900,23 +15909,107 @@ var MicRecorder = function () {
         });
       });
     }
+  }, {
+    key: 'initialize',
+
 
     /**
-     * Disconnect microphone, processor and remove activeStream
+     * Requests access to the microphone and starts recording
+     * @return Promise
+     */
+    value: function initialize() {
+      var _this3 = this;
+
+      var _config = this.config,
+          deviceId = _config.deviceId,
+          encodeAfterRecord = _config.encodeAfterRecord;
+
+      var AudioContext = window.AudioContext || window.webkitAudioContext;
+      this.context = new AudioContext();
+      this.config.sampleRate = this.context.sampleRate;
+      this.rawChunksBuffer = encodeAfterRecord ? [] : null;
+      this.lameEncoder = new Encoder(this.config);
+
+      var audio = deviceId ? { deviceId: { exact: deviceId } } : true;
+
+      return new Promise(function (resolve, reject) {
+        navigator.mediaDevices.getUserMedia({ audio: audio }).then(function (stream) {
+          _this3.addMicrophoneListener(stream);
+          resolve(stream);
+        }).catch(reject);
+      });
+    }
+  }, {
+    key: 'start',
+
+
+    /**
+     * Initializes or resumes recording
+     * @return Promise
+     */
+    value: function start() {
+      if (!this.processor || !this.microphone) {
+        return this.initialize();
+      } else {
+        this.connectMicrophone();
+        return Promise.resolve();
+      }
+    }
+
+    /**
+     * Pause recording
+     * @return Promise
      */
 
   }, {
-    key: "stop",
+    key: 'pause',
+    value: function pause() {
+      this.disconnectMicrophone();
+      return Promise.resolve();
+    }
+  }, {
+    key: 'connectMicrophone',
+
+
+    /**
+     * Start retrieving microphone data
+     */
+    value: function connectMicrophone() {
+      if (this.processor && this.microphone) {
+        this.microphone.connect(this.processor);
+        this.processor.connect(this.context.destination);
+      }
+    }
+
+    /**
+     * Stop retrieving microphone data
+     */
+
+  }, {
+    key: 'disconnectMicrophone',
+    value: function disconnectMicrophone() {
+      if (this.processor && this.microphone) {
+        this.processor.port.postMessage({ action: 'stop' });
+        this.microphone.disconnect();
+        this.processor.disconnect();
+      }
+    }
+
+    /**
+     * Disconnect microphone, processor and remove activeStream
+     * @return MicRecorder
+     */
+
+  }, {
+    key: 'stop',
     value: function stop() {
       if (this.processor && this.microphone) {
         // Clean up the Web Audio API resources.
-        this.processor.port.postMessage({ action: "stop" });
-        this.microphone.disconnect();
-        this.processor.disconnect();
+        this.disconnectMicrophone();
 
         // If all references using this.context are destroyed, context is closed
         // automatically. DOMException is fired when trying to close again
-        if (this.context && this.context.state !== "closed") {
+        if (this.context && this.context.state !== 'closed') {
           this.context.close();
         }
 
@@ -15926,56 +16019,38 @@ var MicRecorder = function () {
         this.activeStream.getAudioTracks().forEach(function (track) {
           return track.stop();
         });
+        this.processor = null;
+        this.microphone = null;
       }
 
       return this;
     }
-
-    /**
-     * Requests access to the microphone and start recording
-     * @return Promise
-     */
-
   }, {
-    key: "start",
-    value: function start() {
-      var _this3 = this;
+    key: 'getMp3',
 
-      var AudioContext = window.AudioContext || window.webkitAudioContext;
-      this.context = new AudioContext();
-      this.config.sampleRate = this.context.sampleRate;
-      this.lameEncoder = new Encoder(this.config);
-
-      var audio = this.config.deviceId ? { deviceId: { exact: this.config.deviceId } } : true;
-
-      return new Promise(function (resolve, reject) {
-        navigator.mediaDevices.getUserMedia({ audio: audio }).then(function (stream) {
-          return _this3.addMicrophoneListener(stream);
-        }).then(function () {
-          return resolve();
-        }).catch(function (err) {
-          reject(err);
-        });
-      });
-    }
 
     /**
      * Return Mp3 Buffer and Blob with type mp3
-     * @return {Promise}
+     * @return Promise
      */
-
-  }, {
-    key: "getMp3",
     value: function getMp3() {
       var _this4 = this;
+
+      if (this.config.encodeAfterRecord) {
+        this.rawChunksBuffer.forEach(function (rawChunk) {
+          _this4.lameEncoder.encode(rawChunk);
+        });
+
+        this.rawChunksBuffer = [];
+      }
 
       var finalBuffer = this.lameEncoder.finish();
 
       return new Promise(function (resolve, reject) {
         if (finalBuffer.length === 0) {
-          reject(new Error("No buffer to send"));
+          reject(new Error('No buffer to send'));
         } else {
-          resolve([finalBuffer, new Blob(finalBuffer, { type: "audio/mp3" })]);
+          resolve([finalBuffer, new Blob(finalBuffer, { type: 'audio/mp3' })]);
           _this4.lameEncoder.clearBuffer();
         }
       });

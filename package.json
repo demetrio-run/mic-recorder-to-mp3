@@ -1,6 +1,6 @@
 {
   "name": "@demetrio-dev/mp3-recorder",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Record your microphone audio input and get an audio/mp3 output buffer/blob.",
   "main": "dist/index.js",
   "scripts": {
@@ -8,7 +8,10 @@
     "minify": "minify=true rollup -c",
     "watch": "rollup -c -w"
   },
-  "repository": "git@github.com:demetrio-run/mp3-recorder.git",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/demetrio-run/mp3-recorder.git"
+  },
   "author": "Djalma Araujo <djalma@close.io>",
   "contributors": [
     "Vitor Buzinaro <vitor@close.io>",

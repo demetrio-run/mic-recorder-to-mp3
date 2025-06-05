@@ -1,6 +1,6 @@
 {
   "name": "@demetrio-dev/mp3-recorder",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Record your microphone audio input and get an audio/mp3 output buffer/blob.",
   "main": "dist/index.js",
   "scripts": {

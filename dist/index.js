@@ -16013,8 +16013,6 @@ var MicRecorder = function () {
           this.context.close();
         }
 
-        this.processor.onaudioprocess = null;
-
         // Stop all audio tracks. Also, removes recording icon from chrome tab
         this.activeStream.getAudioTracks().forEach(function (track) {
           return track.stop();

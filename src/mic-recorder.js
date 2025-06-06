@@ -233,8 +233,6 @@ class MicRecorder {
         this.context.close();
       }
 
-      this.processor.onaudioprocess = null;
-
       // Stop all audio tracks. Also, removes recording icon from chrome tab
       this.activeStream.getAudioTracks().forEach(track => track.stop());
       this.processor = null;
